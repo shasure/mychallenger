@@ -18,3 +18,4 @@ __pycache__/
 vocab.en
 vocab.zh
 zh_en
+en_zh.*
