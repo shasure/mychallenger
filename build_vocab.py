@@ -39,6 +39,12 @@ def build_vocab(filename):
             parse = lambda x: english_parse(x)
         # parse  = lambda x : pynlpir.segment(x,pos_tagging=False)
         idx = 0
+        vocab['<eos>'] = idx
+        idx += 1
+        vocab['<pad>'] = idx
+        idx += 1
+        vocab['<unk>'] = idx
+        idx += 1
         for line in file.readlines():
             # print(line)
             line = parse(line)
@@ -50,11 +56,9 @@ def build_vocab(filename):
                     vocab[word] = idx
                     idx +=1
             # time.sleep(3)
-        vocab['<pad>'] = idx
-        idx+=1
-        vocab['<unk>'] = idx
-        idx+=1
-        vocab['<eos>'] = idx
+
+
+
     return vocab,maxLen
 
 class CorpusInfo(object):
@@ -65,7 +69,10 @@ class CorpusInfo(object):
             pickle.dump(self.vocab,file)
 
 def sentence2int(sentence,vocab):
-    return [vocab[word] if word in vocab else vocab['<unk>'] for word in sentence]
+    int_list = [0]
+    int_list.extend([vocab[word] if word in vocab else vocab['<unk>'] for word in sentence])
+    int_list.append(0)
+    return int_list
 
 class Config(object):
     def __init__(self):
@@ -87,11 +94,15 @@ def convert():
         print(en.strip())
         en = sentence2int(english_parse(en.strip()), vocab_en)
         print(en)
-        for i in en:
-            out_file.write(str(i) + ' ')
+        out_file.write(str(vocab_en['<eos>'])+',')
+        for i in en[1:-1]:
+            out_file.write(str(i) + ',')
+        out_file.write(str(vocab_en['<eos>']))
         out_file.write('\n')
-        for i in zh:
-            out_file.write(str(i) + ' ')
+        out_file.write(str(vocab_zh['<eos>'])+',')
+        for i in zh[1:-1]:
+            out_file.write(str(i) + ',')
+        out_file.write(str(vocab_zh['<eos>']))
         out_file.write('\n')
         print('\n')
     out_file.close()
@@ -101,16 +112,16 @@ if __name__ == '__main__':
     config = Config()
     config.zh_dir=os.path.abspath('../ai_challenger_translation_train_20170904/translation_train_data_20170904/train.zh.m')
     config.en_dir=os.path.abspath('../ai_challenger_translation_train_20170904/translation_train_data_20170904/train.en.m')
-    # if sys.argv[1] == 'zh':
-    #     ZH= CorpusInfo(config.zh_dir)
-    #     config.zh_max_len=ZH.max_len
-    #     ZH.write('vocab.zh')
-    # else:
-    #     EN = CorpusInfo(config.en_dir)
-    #     config.en_max_len = EN.max_len
-    #     EN.write('vocab.en')
+    if sys.argv[1] == 'zh':
+        ZH= CorpusInfo(config.zh_dir)
+        config.zh_max_len=ZH.max_len
+        ZH.write('vocab.zh')
+    else:
+        EN = CorpusInfo(config.en_dir)
+        config.en_max_len = EN.max_len
+        EN.write('vocab.en')
 
-    convert()
+    # convert()
 
     IPython.embed()
 
