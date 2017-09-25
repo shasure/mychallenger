@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+
+# Pycharm
+.idea
+
+#My file
+vocab.en
+vocab.zh
+zh_en
