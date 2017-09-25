@@ -42,12 +42,17 @@ class Translator(object):
 
 
     def model(self):
+
+        # 将来替换为record input
         inputs = tf.placeholder(dtype=tf.int32, shape=(FLAGS.batch_size, FLAGS.en_max_length))
         targets = tf.placeholder(dtype=tf.int32, shape=(FLAGS.batch_size, FLAGS.zh_max_length))
         start_tokens = tf.placeholder(tf.int32, shape=[], name='start_tokens')
         end_token = tf.placeholder(tf.int32, shape=[], name='end_token')
         en_len_sequence = tf.placeholder(dtype=tf.int32, shape=FLAGS.batch_size)
         zh_len_sequence = tf.placeholder(dtype=tf.int32, shape=FLAGS.batch_size, name='batch_seq_length')
+
+
+
         embedding_matrix = tf.get_variable(name='embedding_matrix',
                                            shape=(FLAGS.en_vocab_size, FLAGS.en_embedded_size),
                                            dtype=tf.float32,
