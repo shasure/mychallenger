@@ -16,6 +16,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+from datetime import datetime
 from tensorflow.python.layers.core import Dense
 import os
 FLAGS = tf.app.flags.FLAGS
@@ -100,7 +101,7 @@ class Translator(object):
             initial_state = tuple(initial_state)
 
             if FLAGS.is_inference:
-                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(embedded, start_tokens, end_token)
+                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(zh_embedding_matrix, start_tokens, end_token)
             else:
                 helper = tf.contrib.seq2seq.TrainingHelper(target_embedded, zh_len_sequence)
 
@@ -111,6 +112,7 @@ class Translator(object):
             inference_losses = tf.contrib.seq2seq.sequence_loss(logits.rnn_output, targets, weights)
             tf.add_to_collection(tf.GraphKeys.LOSSES, inference_losses)
             losses = tf.add_n(tf.get_collection(tf.GraphKeys.LOSSES))
+            eval = sequence_equal(logits.sample_id,targets)
 
             global_step = tf.train.get_or_create_global_step()
 
@@ -127,11 +129,12 @@ class Translator(object):
             if FLAGS.is_inference:
                 return logits.sample_id,[inputs,en_len_sequence,start_tokens,end_token]
             else:
-                return [global_step,losses,apply_grads_op],[inputs,en_len_sequence,targets,zh_len_sequence]
+                return [global_step,eval,losses,apply_grads_op],[inputs,en_len_sequence,targets,zh_len_sequence]
 
 
 
     def train(self,dataset):
+        start = datetime.now()
         train_op,feed_list = self.model()
         init_op = tf.global_variables_initializer()
         saver = tf.train.Saver(tf.global_variables())
@@ -141,15 +144,18 @@ class Translator(object):
             for step in range(FLAGS.max_step):
                 en_batch, zh_batch = dataset.nextbatch(is_train=True)
 
-                sess.run(train_op,feed_dict={feed_list[0]:en_batch.data,
+                train_info = sess.run(train_op,feed_dict={feed_list[0]:en_batch.data,
                                              feed_list[1]:en_batch.len_sequence,
                                              feed_list[2]:zh_batch.data,
                                              feed_list[3]:zh_batch.len_sequence})
                 if train_op[0]%100==0:
+                    print(datetime.now()-start)
+                    print('\t')
+                    for info in train_info:
+                        print(info+'\t')
                     if not os.path.exists(FLAGS.ckpt_dir):
                         os.mkdir(FLAGS.ckpt_dir)
                     saver.save(sess,FLAGS.ckpt_dir)
-
 
 
 
@@ -161,6 +167,16 @@ class Translator(object):
 
     def output(self):
         pass
+
+
+def sequence_equal(x_batch,y_batch,sequence_length):
+    equal_info = [0 for _ in range(x_batch.shape[0])]
+    for i in range(x_batch.shape[0]):
+        equal_info[i] = tf.reduce_sum(tf.cast(tf.equal(x_batch[i,:sequence_length[i]],y_batch[i,:sequence_length[i]]),tf.float32))
+    sum = tf.add_n(equal_info)
+    return sum/tf.reduce_sum(sequence_length)
+
+
 
 class Dataset():
     def __init__(self,data_dir):
