@@ -43,7 +43,9 @@ def _int64_feature(value):
 def _convert_to_example(zh_int_list,en_int_list):
     feature_dict={
         'zh': _int64_feature(zh_int_list),
-        'en': _int64_feature(en_int_list)
+        'en': _int64_feature(en_int_list),
+        'zh_length':_int64_feature(len(zh_int_list)),
+        'en_length':_int64_feature(len(en_int_list))
     }
     return tf.train.Example(
         features=tf.train.Features(feature=feature_dict)
@@ -76,17 +78,17 @@ def process(zh,en,zh_vocab,en_vocab,writer_name):
     assert len(zh) == len(en), 'bad data set'
     writer = tf.python_io.TFRecordWriter(writer_name)
     for i in range(len(zh)):
-        print(i)
+        # print(i)
         zh_line = sentence2int(chinese_parse(zh[i].strip()), zh_vocab)
         en_line = sentence2int(english_parse(en[i].strip()), en_vocab)
         example = _convert_to_example(zh_line,en_line)
         writer.write(example.SerializeToString())
 
 def main(argv=None):
-    manager = Manager()
-    with open(FLAGS.train_dir+'/train.zh','r',encoding='utf-8') as file:
+    start = datetime.now()
+    with open(FLAGS.train_dir+'/train.zh.m','r',encoding='utf-8') as file:
         zh = file.readlines()
-    with open(FLAGS.train_dir+'/train.en','r',encoding='utf-8') as file:
+    with open(FLAGS.train_dir+'/train.en.m','r',encoding='utf-8') as file:
         en = file.readlines()
 
     num_threads = 8
@@ -127,6 +129,7 @@ def main(argv=None):
                    for thread_id in range(num_threads)]
         for t in targets:
             t.get()
+    print(datetime.now()-start)
 
 
 
