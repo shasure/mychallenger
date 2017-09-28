@@ -34,7 +34,7 @@ tf.app.flags.DEFINE_integer('zh_embedded_size',200,
                           '''english embedded size''')
 tf.app.flags.DEFINE_integer('zh_max_length',20,
                            '''''')
-tf.app.flags.DEFINE_integer('batch_size',128,
+tf.app.flags.DEFINE_integer('batch_size',64,
                             '''batch size''')
 tf.app.flags.DEFINE_integer('attention_size',100,
                            '''''')
@@ -48,11 +48,15 @@ tf.app.flags.DEFINE_integer('decay_step',1000,
                             '''decay step''')
 tf.app.flags.DEFINE_float('decay_rate',0.99,
                           '''decay weight''')
+tf.app.flags.DEFINE_float('max_gradient',1.00,
+                          '''clipped max gradient''')
 
 
 '''train flags'''
 tf.app.flags.DEFINE_boolean('is_inference',False,
                             '''inference flag''')
+tf.app.flags.DEFINE_boolean('is_train',True,
+                            '''train flag''')
 
 
 
