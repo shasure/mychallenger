@@ -28,7 +28,9 @@ def inputs(filenames):
     example = reader.read(filenames)[1]
     feature_map ={
         'en':tf.VarLenFeature(dtype=tf.int64),
-        'zh':tf.VarLenFeature(dtype=tf.int64)
+        'zh':tf.VarLenFeature(dtype=tf.int64),
+        'zh_length':tf.FixedLenFeature(shape=[],dtype = tf.int64),
+        'en_length':tf.FixedLenFeature(shape=[],dtype = tf.int64)
     }
     features = tf.parse_single_example(example,feature_map)
 
