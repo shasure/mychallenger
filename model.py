@@ -19,6 +19,7 @@ import tensorflow as tf
 from datetime import datetime
 from tensorflow.python.layers.core import Dense
 import os
+import time
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -39,6 +40,9 @@ class Translator(object):
         self.config = tf.ConfigProto(log_device_placement=True)
         self.config.gpu_options.allow_growth = True
         self.config.allow_soft_placement  = True
+        self.train_dataset = Dataset()
+        self.eval_dataset = Dataset()
+        self.test_dataset = Dataset()
 
 
 
@@ -54,7 +58,7 @@ class Translator(object):
 
 
 
-        embedding_matrix = tf.get_variable(name='embedding_matrix',
+        en_embedding_matrix = tf.get_variable(name='embedding_matrix',
                                            shape=(FLAGS.en_vocab_size, FLAGS.en_embedded_size),
                                            dtype=tf.float32,
                                            # regularizer=tf.nn.l2_loss,
@@ -65,10 +69,14 @@ class Translator(object):
                                               dtype=tf.float32,
                                               # regularizer=tf.nn.l2_loss,
                                               initializer=tf.truncated_normal_initializer(mean=0, stddev=0.01))
-        tf.add_to_collection(tf.GraphKeys.LOSSES, tf.nn.l2_loss(embedding_matrix))
+
+        tf.add_to_collection(tf.GraphKeys.LOSSES, tf.nn.l2_loss(en_embedding_matrix))
         tf.add_to_collection(tf.GraphKeys.LOSSES, tf.nn.l2_loss(zh_embedding_matrix))
+
+        tf.summary.histogram('zh_embedding_matrix',zh_embedding_matrix)
+        tf.summary.histogram('en_embedding_matrix',en_embedding_matrix)
         with tf.device('/cpu:0'):
-            embedded = tf.nn.embedding_lookup(embedding_matrix, inputs)
+            embedded = tf.nn.embedding_lookup(en_embedding_matrix, inputs)
             target_embedded = tf.nn.embedding_lookup(zh_embedding_matrix, targets)
 
         with tf.name_scope("encoder"):
@@ -84,6 +92,10 @@ class Translator(object):
             dense_fw = tf.concat(states_fw, axis=1)
             dense_bw = tf.concat(states_bw, axis=1)
             states = tf.concat([dense_bw, dense_fw], axis=1)
+
+            tf.summary.histogram('encoder_state',states)
+
+
         with tf.name_scope("decoder"):
             attention_m = \
                 tf.contrib.seq2seq.BahdanauAttention(
@@ -95,6 +107,7 @@ class Translator(object):
                 [tf.contrib.seq2seq.AttentionWrapper(
                     cell_out[i], attention_m) for i in range(len(config.out_cell_units))]
             cells = tf.contrib.rnn.MultiRNNCell(cell_attention)
+
             initial_state = cells.zero_state(dtype=tf.float32, batch_size=FLAGS.batch_size)
             initial_state = list(initial_state)
             initial_state[0] = initial_state[0].clone(cell_state=states)
@@ -110,9 +123,12 @@ class Translator(object):
             logits, final_states, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(decoder)
             weights = tf.constant(1.0, shape=[FLAGS.batch_size, FLAGS.zh_max_length])
             inference_losses = tf.contrib.seq2seq.sequence_loss(logits.rnn_output, targets, weights)
+            tf.summary.scalar('inference_loss',inference_losses)
             tf.add_to_collection(tf.GraphKeys.LOSSES, inference_losses)
             losses = tf.add_n(tf.get_collection(tf.GraphKeys.LOSSES))
+            tf.summary.scalar('losses',losses)
             eval = sequence_equal(logits.sample_id,targets)
+            tf.summary.scalar('eval',eval)
 
             global_step = tf.train.get_or_create_global_step()
 
@@ -120,27 +136,38 @@ class Translator(object):
                                                        global_step,
                                                        FLAGS.decay_step,
                                                        FLAGS.decay_rate)
+            tf.summary.scalar('learning_rate',learning_rate)
 
             opt = tf.train.GradientDescentOptimizer(learning_rate)
 
             grads_and_vars = opt.compute_gradients(losses)
-            apply_grads_op = opt.apply_gradients(grads_and_vars, global_step)
+            clipped_grads_and_vars = tf.contrib.training.clip_gradient_norms(grads_and_vars,FLAGS.max_gradient)
+            apply_grads_op = opt.apply_gradients(clipped_grads_and_vars, global_step)
+
+            summary_op = tf.summary.merge_all()
 
             if FLAGS.is_inference:
                 return logits.sample_id,[inputs,en_len_sequence,start_tokens,end_token]
+            elif FLAGS.is_train:
+                return [global_step,eval,losses,apply_grads_op,summary_op],[inputs,en_len_sequence,targets,zh_len_sequence]
             else:
-                return [global_step,eval,losses,apply_grads_op],[inputs,en_len_sequence,targets,zh_len_sequence]
+                return [global_step,eval,losses]
 
 
 
-    def train(self,dataset):
+    def train(self):
+        # dataset will be changed when the input data is prepared
         start = datetime.now()
+        dataset = self.train_dataset
         train_op,feed_list = self.model()
         init_op = tf.global_variables_initializer()
         saver = tf.train.Saver(tf.global_variables())
+        summary = tf.summary.FileWriter(FLAGS.ckpt_dir)
         with tf.Session(config=self.config) as sess:
             if not os.path.exists(FLAGS.ckpt_dir):
                 sess.run(init_op)
+            else:
+                saver.restore(sess,FLAGS.ckpt_dir+'/model.ckpt')
             for step in range(FLAGS.max_step):
                 en_batch, zh_batch = dataset.nextbatch(is_train=True)
 
@@ -148,25 +175,72 @@ class Translator(object):
                                              feed_list[1]:en_batch.len_sequence,
                                              feed_list[2]:zh_batch.data,
                                              feed_list[3]:zh_batch.len_sequence})
-                if train_op[0]%100==0:
+                if train_info[0]%100==0:
                     print(datetime.now()-start)
                     print('\t')
-                    for info in train_info:
+                    for info in train_info[:-1]:
                         print(info+'\t')
+                    summary.add_summary(train_info[-1],train_info[0])
                     if not os.path.exists(FLAGS.ckpt_dir):
                         os.mkdir(FLAGS.ckpt_dir)
-                    saver.save(sess,FLAGS.ckpt_dir)
+                    saver.save(sess,FLAGS.ckpt_dir+'/model.ckpt')
 
 
 
     def eval(self):
-        pass
+        # dataset will be changed when the input data is prepared
+        dataset = self.eval_dataset
+        max_examples = dataset.max_examples()
+        assert max_examples%FLAGS.batch_size == 0
+        eval_op = self.model()
+        eval = 0
+        losses = 0
+        summary = tf.summary.FileWriter(FLAGS.ckpt_dir)
+        summary_op = tf.summary.scalar('eval_score',eval)
+        with tf.Session(config=self.config) as sess:
+            while True:
+                for i in range(int(max_examples/FLAGS.batch_size)):
+                    eval_info,summary_str = sess.run(eval_op,summary_op)
+                    summary.add_summary(summary_str,eval_info[0])
+                    eval += eval_info[1]
+                    losses += eval_info[2]
+                eval = eval/max_examples*FLAGS.batch_size
+                print(eval,losses)
+                time.sleep(100)
+
+
+
+
+
+
+
+    def test(self):
+        dataset = self.test_dataset
+        max_examples = dataset.max_examples()
+        assert max_examples % FLAGS.batch_size == 0
+        output = self.model()
+        result =[]
+        with tf.Session(config=self.config) as sess:
+            for i in range(int(max_examples/FLAGS.batch_size)):
+                output_id = sess.run(output)
+                result.extend(output_id)
+        with open(FLAGS.test_dir+'result_raw.csv','w',encoding='utf-8') as file:
+            for line in result:
+                for i in line:
+                    file.write(str(i)+',')
+                file.write('\n')
+        return result
 
     def run(self):
-        pass
+        if FLAGS.is_inference:
+            self.test()
+        elif FLAGS.is_train:
+            self.train()
+        else:
+            self.eval()
 
-    def output(self):
-        pass
+
+
 
 
 def sequence_equal(x_batch,y_batch,sequence_length):
@@ -189,6 +263,8 @@ class Dataset():
             return Batch(...),Batch(...)
         else:
             return Batch(...)
+    def max_examples(self):
+        pass
 
 
 class Batch():
